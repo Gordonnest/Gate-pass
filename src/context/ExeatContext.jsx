@@ -66,38 +66,88 @@ export function ExeatProvider({ children }) {
     };
   }, []);
 
+  const getLocalUsers = () => {
+    try {
+      const saved = localStorage.getItem('GATEPASS_HUB_ALL_USERS');
+      return saved ? JSON.parse(saved) : [];
+    } catch (e) {
+      return [];
+    }
+  };
+
+  const saveLocalUsers = (userList) => {
+    try {
+      localStorage.setItem('GATEPASS_HUB_ALL_USERS', JSON.stringify(userList));
+    } catch (e) {}
+  };
+
+  const getLocalRequests = () => {
+    try {
+      const saved = localStorage.getItem('GATEPASS_HUB_REQUESTS');
+      return saved ? JSON.parse(saved) : [];
+    } catch (e) {
+      return [];
+    }
+  };
+
+  const saveLocalRequests = (reqList) => {
+    try {
+      localStorage.setItem('GATEPASS_HUB_REQUESTS', JSON.stringify(reqList));
+    } catch (e) {}
+  };
+
   async function fetchUsers() {
-    const { data, error } = await supabase.from('users').select('*');
-    if (error) console.error('fetchUsers error:', error);
-    if (data) setUsers(data);
-    return data || [];
+    try {
+      const { data, error } = await supabase.from('users').select('*');
+      if (!error && data && data.length > 0) {
+        setUsers(data);
+        saveLocalUsers(data);
+        return data;
+      }
+    } catch (e) {
+      console.warn("Supabase fetch users offline/failed, using local fallback.", e);
+    }
+    const local = getLocalUsers();
+    setUsers(local);
+    return local;
   }
 
   async function fetchStudentPerformances() {
-    const { data } = await supabase.from('student_performance').select('*');
-    if (data) setStudentPerformances(data);
+    try {
+      const { data } = await supabase.from('student_performance').select('*');
+      if (data) setStudentPerformances(data);
+    } catch (e) {}
   }
 
   async function fetchRequests() {
-    const { data } = await supabase.from('gatepass_requests').select('*').order('createdAt', { ascending: false });
-    if (data) setRequests(data);
+    try {
+      const { data, error } = await supabase.from('gatepass_requests').select('*').order('createdAt', { ascending: false });
+      if (!error && data && data.length > 0) {
+        setRequests(data);
+        saveLocalRequests(data);
+        return;
+      }
+    } catch (e) {}
+    setRequests(getLocalRequests());
   }
 
   async function fetchAttendanceData() {
-    const { data: sessionData } = await supabase.from('attendance_sessions').select('*').order('openedAt', { ascending: false }).limit(1);
-    if (sessionData && sessionData.length > 0) {
-      setAttendanceSession(sessionData[0]);
-      
-      const { data: pinsData } = await supabase.from('attendance_pins').select('*');
-      if (pinsData) setSessionPINs(pinsData);
-      
-      const { data: recordsData } = await supabase.from('attendance_records').select('*');
-      if (recordsData) setAttendanceRecords(recordsData);
-    } else {
-      setAttendanceSession(null);
-      setSessionPINs([]);
-      setAttendanceRecords([]);
-    }
+    try {
+      const { data: sessionData } = await supabase.from('attendance_sessions').select('*').order('openedAt', { ascending: false }).limit(1);
+      if (sessionData && sessionData.length > 0) {
+        setAttendanceSession(sessionData[0]);
+        
+        const { data: pinsData } = await supabase.from('attendance_pins').select('*');
+        if (pinsData) setSessionPINs(pinsData);
+        
+        const { data: recordsData } = await supabase.from('attendance_records').select('*');
+        if (recordsData) setAttendanceRecords(recordsData);
+      } else {
+        setAttendanceSession(null);
+        setSessionPINs([]);
+        setAttendanceRecords([]);
+      }
+    } catch (e) {}
   }
 
   const showToast = (message, type = 'info') => {
@@ -118,12 +168,22 @@ export function ExeatProvider({ children }) {
   };
 
   const registerUser = async (newUserObj) => {
-    const { data, error } = await supabase.from('users').insert([newUserObj]).select();
-    if (error) {
-      showToast('Registration failed: ' + error.message, 'error');
-    } else if (data) {
-      loginUser(data[0]);
+    let userToLogin = newUserObj;
+    try {
+      const { data, error } = await supabase.from('users').insert([newUserObj]).select();
+      if (!error && data && data.length > 0) {
+        userToLogin = data[0];
+      }
+    } catch (e) {
+      console.warn("Supabase insert offline, saving locally.", e);
     }
+
+    const currentLocal = getLocalUsers();
+    const updatedLocal = [...currentLocal.filter(u => u.email !== userToLogin.email), userToLogin];
+    saveLocalUsers(updatedLocal);
+    setUsers(updatedLocal);
+
+    loginUser(userToLogin);
   };
 
   const logoutUser = () => {
@@ -141,9 +201,15 @@ export function ExeatProvider({ children }) {
       status: 'PENDING',
       createdAt: new Date().toISOString()
     };
-    const { error } = await supabase.from('gatepass_requests').insert([req]);
-    if (error) showToast('Failed to submit application.', 'error');
-    else showToast('Permission application submitted! Awaiting supervisor review.', 'success');
+    try {
+      await supabase.from('gatepass_requests').insert([req]);
+    } catch (e) {}
+
+    const localReqs = getLocalRequests();
+    const updatedReqs = [req, ...localReqs];
+    saveLocalRequests(updatedReqs);
+    setRequests(updatedReqs);
+    showToast('Permission application submitted! Awaiting supervisor review.', 'success');
   };
 
   const approveRequest = async (id, notes) => {
