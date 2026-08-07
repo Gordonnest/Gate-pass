@@ -4,4 +4,4 @@ const supabaseUrl = import.meta.env.VITE_SUPABASE_URL || 'https://hobfehrtufcjgm
 const supabaseKey = import.meta.env.VITE_SUPABASE_ANON_KEY || 'sb_publishable_OmEjWzscksODDao76oJMoQ_UnKOgxNQ';
 
 export const supabase = createClient(supabaseUrl, supabaseKey);
-// made changes
+// made changes here
