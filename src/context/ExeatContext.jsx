@@ -70,6 +70,7 @@ export function ExeatProvider({ children }) {
     const { data, error } = await supabase.from('users').select('*');
     if (error) console.error('fetchUsers error:', error);
     if (data) setUsers(data);
+    return data || [];
   }
 
   async function fetchStudentPerformances() {
@@ -395,6 +396,7 @@ export function ExeatProvider({ children }) {
       requests,
       currentUser,
       users,
+      fetchUsers,
       loginUser,
       logoutUser,
       registerUser,

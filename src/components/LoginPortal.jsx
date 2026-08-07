@@ -3,8 +3,9 @@ import { Shield, UserCheck, ShieldCheck, UserCog, LogIn, Key, ArrowRight, User }
 import { useExeat } from '../context/ExeatContext';
 
 export default function LoginPortal({ onSwitchMode }) {
-  const { users, loginUser, showToast } = useExeat();
+  const { users, fetchUsers, loginUser, showToast } = useExeat();
   const [tab, setTab] = useState('student'); // 'student' | 'admin' | 'security'
+  const [isSubmitting, setIsSubmitting] = useState(false);
   
   // Student Form State
   const [studentIdInput, setStudentIdInput] = useState('');
@@ -20,18 +21,36 @@ export default function LoginPortal({ onSwitchMode }) {
   const [secEmailInput, setSecEmailInput] = useState('');
   const [secPassword, setSecPassword] = useState('');
 
-  const students = users.filter(u => u.role === 'participant');
-  const admins = users.filter(u => u.role === 'admin' || u.role === 'superadmin');
-  const securities = users.filter(u => u.role === 'security');
+  const checkUserMatch = (user, query) => {
+    if (!user || !query) return false;
+    const q = query.trim().toUpperCase();
+    const sId = (user.studentId || '').trim().toUpperCase();
+    const email = (user.email || '').trim().toUpperCase();
+    const name = (user.name || '').trim().toUpperCase();
+    return q === sId || q === email || q === name;
+  };
 
-  const handleStudentSubmit = (e) => {
+  const handleStudentSubmit = async (e) => {
     e.preventDefault();
-    const query = studentIdInput.trim().toUpperCase();
+    const query = studentIdInput.trim();
     if (!query) {
-      showToast('Please enter your Student ID or Roll Number', 'error');
+      showToast('Please enter your Student ID, Email, or Name', 'error');
       return;
     }
-    const match = students.find(s => s.studentId?.toUpperCase() === query || s.email?.toUpperCase() === query);
+
+    setIsSubmitting(true);
+    let allUsers = users;
+    // Always refresh users list if local matching misses to avoid false 404s
+    if (allUsers.length === 0 || !allUsers.some(u => checkUserMatch(u, query))) {
+      const freshData = await fetchUsers();
+      if (freshData && freshData.length > 0) {
+        allUsers = freshData;
+      }
+    }
+    setIsSubmitting(false);
+
+    const students = allUsers.filter(u => u.role === 'participant');
+    const match = students.find(s => checkUserMatch(s, query));
     
     if (match) {
       if (match.password && match.password !== studentPassword) {
@@ -40,24 +59,42 @@ export default function LoginPortal({ onSwitchMode }) {
         loginUser(match, studentLoginType);
       }
     } else {
-      // Check if they exist in other roles to provide a better error
-      const adminMatch = admins.find(a => a.email?.toUpperCase() === query);
-      const securityMatch = securities.find(s => s.email?.toUpperCase() === query);
+      // Check if they exist in other roles to provide a clear error message
+      const admins = allUsers.filter(u => u.role === 'admin' || u.role === 'superadmin');
+      const securities = allUsers.filter(u => u.role === 'security');
+      const adminMatch = admins.find(a => checkUserMatch(a, query));
+      const securityMatch = securities.find(s => checkUserMatch(s, query));
       
       if (adminMatch) {
         showToast('This account is registered as an Admin. Please use the Admin tab.', 'error');
       } else if (securityMatch) {
         showToast('This account is registered as Security. Please use the Security tab.', 'error');
       } else {
-        showToast('Student account not found. Please sign up.', 'error');
+        showToast('Student account not found. Please check your credentials or sign up.', 'error');
       }
     }
   };
 
-  const handleAdminSubmit = (e) => {
+  const handleAdminSubmit = async (e) => {
     e.preventDefault();
-    const query = adminEmailInput.trim().toLowerCase();
-    const match = admins.find(a => a.email?.toLowerCase() === query);
+    const query = adminEmailInput.trim();
+    if (!query) {
+      showToast('Please enter your email or credentials', 'error');
+      return;
+    }
+
+    setIsSubmitting(true);
+    let allUsers = users;
+    if (allUsers.length === 0 || !allUsers.some(u => checkUserMatch(u, query))) {
+      const freshData = await fetchUsers();
+      if (freshData && freshData.length > 0) {
+        allUsers = freshData;
+      }
+    }
+    setIsSubmitting(false);
+
+    const admins = allUsers.filter(u => u.role === 'admin' || u.role === 'superadmin');
+    const match = admins.find(a => checkUserMatch(a, query));
     
     if (match) {
       if (match.password && match.password !== adminPassword) {
@@ -66,24 +103,41 @@ export default function LoginPortal({ onSwitchMode }) {
         loginUser(match, adminLoginType);
       }
     } else {
-      // Check if they exist in other roles to provide a better error
-      const studentMatch = students.find(s => s.email?.toLowerCase() === query);
-      const securityMatch = securities.find(s => s.email?.toLowerCase() === query);
+      const students = allUsers.filter(u => u.role === 'participant');
+      const securities = allUsers.filter(u => u.role === 'security');
+      const studentMatch = students.find(s => checkUserMatch(s, query));
+      const securityMatch = securities.find(s => checkUserMatch(s, query));
       
       if (studentMatch) {
-        showToast('This email is registered as a Student. Please use the Student tab.', 'error');
+        showToast('This account is registered as a Student. Please use the Student tab.', 'error');
       } else if (securityMatch) {
-        showToast('This email is registered as Security. Please use the Security tab.', 'error');
+        showToast('This account is registered as Security. Please use the Security tab.', 'error');
       } else {
-        showToast('Admin account not found. Please sign up.', 'error');
+        showToast('Admin account not found. Please check your email or sign up.', 'error');
       }
     }
   };
 
-  const handleSecuritySubmit = (e) => {
+  const handleSecuritySubmit = async (e) => {
     e.preventDefault();
-    const query = secEmailInput.trim().toLowerCase();
-    const match = securities.find(s => s.email?.toLowerCase() === query);
+    const query = secEmailInput.trim();
+    if (!query) {
+      showToast('Please enter your email or officer ID', 'error');
+      return;
+    }
+
+    setIsSubmitting(true);
+    let allUsers = users;
+    if (allUsers.length === 0 || !allUsers.some(u => checkUserMatch(u, query))) {
+      const freshData = await fetchUsers();
+      if (freshData && freshData.length > 0) {
+        allUsers = freshData;
+      }
+    }
+    setIsSubmitting(false);
+
+    const securities = allUsers.filter(u => u.role === 'security');
+    const match = securities.find(s => checkUserMatch(s, query));
     
     if (match) {
       if (match.password && match.password !== secPassword) {
@@ -92,16 +146,17 @@ export default function LoginPortal({ onSwitchMode }) {
         loginUser(match);
       }
     } else {
-      // Check if they exist in other roles to provide a better error
-      const studentMatch = students.find(s => s.email?.toLowerCase() === query);
-      const adminMatch = admins.find(a => a.email?.toLowerCase() === query);
+      const students = allUsers.filter(u => u.role === 'participant');
+      const admins = allUsers.filter(u => u.role === 'admin' || u.role === 'superadmin');
+      const studentMatch = students.find(s => checkUserMatch(s, query));
+      const adminMatch = admins.find(a => checkUserMatch(a, query));
       
       if (studentMatch) {
-        showToast('This email is registered as a Student. Please use the Student tab.', 'error');
+        showToast('This account is registered as a Student. Please use the Student tab.', 'error');
       } else if (adminMatch) {
-        showToast('This email is registered as an Admin. Please use the Admin tab.', 'error');
+        showToast('This account is registered as an Admin. Please use the Admin tab.', 'error');
       } else {
-        showToast('Security officer not found. Please sign up.', 'error');
+        showToast('Security officer account not found. Please sign up.', 'error');
       }
     }
   };
