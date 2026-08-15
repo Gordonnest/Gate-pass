@@ -818,6 +818,153 @@ body {
   box-shadow: 0 0 12px rgba(99, 102, 241, 0.25);
 }
 
+/* Password show/hide wrapper */
+.password-wrapper {
+  position: relative;
+  display: flex;
+  align-items: center;
+}
+
+.password-wrapper .form-control {
+  width: 100%;
+  padding-right: 2.5rem;
+}
+
+.password-toggle {
+  position: absolute;
+  right: 0.75rem;
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  color: var(--text-muted);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  transition: color 0.2s ease;
+}
+
+.password-toggle:hover {
+  color: var(--text-main);
+}
+
+/* ── Input Autocomplete Dropdown ───────────────────── */
+.input-dropdown-wrapper {
+  position: relative;
+  width: 100%;
+}
+
+.input-dropdown {
+  position: absolute;
+  top: calc(100% + 4px);
+  left: 0;
+  right: 0;
+  z-index: 200;
+  background: rgba(10, 16, 30, 0.97);
+  border: 1px solid rgba(99, 102, 241, 0.35);
+  border-radius: var(--radius-md);
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.55), 0 0 0 1px rgba(99,102,241,0.08);
+  overflow: hidden;
+  backdrop-filter: blur(16px);
+  max-height: 260px;
+  overflow-y: auto;
+}
+
+.input-dropdown::-webkit-scrollbar { width: 4px; }
+.input-dropdown::-webkit-scrollbar-track { background: transparent; }
+.input-dropdown::-webkit-scrollbar-thumb { background: rgba(99,102,241,0.3); border-radius: 4px; }
+
+.input-dropdown-label {
+  font-size: 0.68rem;
+  color: var(--text-muted);
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  padding: 0.55rem 0.85rem 0.3rem;
+  border-bottom: 1px solid rgba(255,255,255,0.05);
+}
+
+.input-dropdown-item {
+  display: flex;
+  align-items: center;
+  gap: 0.7rem;
+  padding: 0.6rem 0.85rem;
+  cursor: pointer;
+  transition: background 0.15s ease;
+  border-bottom: 1px solid rgba(255,255,255,0.04);
+}
+
+.input-dropdown-item:last-child {
+  border-bottom: none;
+}
+
+.input-dropdown-item:hover {
+  background: rgba(99, 102, 241, 0.14);
+}
+
+.input-dropdown-avatar {
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  background: linear-gradient(135deg, var(--primary), var(--secondary));
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.68rem;
+  font-weight: 800;
+  color: #fff;
+  flex-shrink: 0;
+  letter-spacing: 0.02em;
+}
+
+.input-dropdown-info {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.08rem;
+}
+
+.input-dropdown-name {
+  font-size: 0.83rem;
+  font-weight: 600;
+  color: var(--text-main);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.input-dropdown-sub {
+  font-size: 0.7rem;
+  color: var(--text-muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.input-dropdown-remove {
+  background: transparent;
+  border: none;
+  color: var(--text-muted);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 4px;
+  border-radius: 4px;
+  opacity: 0;
+  flex-shrink: 0;
+  transition: opacity 0.15s ease, color 0.15s ease;
+}
+
+.input-dropdown-item:hover .input-dropdown-remove {
+  opacity: 1;
+}
+
+.input-dropdown-remove:hover {
+  color: var(--accent-red);
+}
+
 .pass-ticket {
   background: linear-gradient(135deg, #111827, #1f2937);
   border: 2px solid var(--primary);

@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Shield, UserCheck, ShieldCheck, UserCog, UserPlus, ArrowLeft, Key, User, Mail, Hash, Phone } from 'lucide-react';
+import { Shield, UserCheck, ShieldCheck, UserCog, UserPlus, ArrowLeft, Key, User, Mail, Hash, Phone, Eye, EyeOff } from 'lucide-react';
 import { useExeat } from '../context/ExeatContext';
 
 export default function SignUpPortal({ onSwitchMode }) {
@@ -12,6 +12,10 @@ export default function SignUpPortal({ onSwitchMode }) {
   const [phone, setPhone] = useState('');
   const [password, setPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
+
+  // Password visibility state
+  const [showPassword, setShowPassword] = useState(false);
+  const [showConfirmPassword, setShowConfirmPassword] = useState(false);
 
   // Role-Specific State
   const [studentId, setStudentId] = useState('');
@@ -176,26 +180,48 @@ export default function SignUpPortal({ onSwitchMode }) {
 
           <div className="form-group">
             <label><Key size={14} style={{ display: 'inline', marginRight: 4 }} /> Password</label>
-            <input
-              type="password"
-              className="form-control"
-              placeholder="••••••••"
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              required
-            />
+            <div className="password-wrapper">
+              <input
+                type={showPassword ? 'text' : 'password'}
+                className="form-control"
+                placeholder="••••••••"
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                required
+              />
+              <button
+                type="button"
+                className="password-toggle"
+                onClick={() => setShowPassword(v => !v)}
+                tabIndex={-1}
+                aria-label={showPassword ? 'Hide password' : 'Show password'}
+              >
+                {showPassword ? <EyeOff size={16} /> : <Eye size={16} />}
+              </button>
+            </div>
           </div>
 
           <div className="form-group">
             <label><Key size={14} style={{ display: 'inline', marginRight: 4 }} /> Confirm Password</label>
-            <input
-              type="password"
-              className="form-control"
-              placeholder="••••••••"
-              value={confirmPassword}
-              onChange={(e) => setConfirmPassword(e.target.value)}
-              required
-            />
+            <div className="password-wrapper">
+              <input
+                type={showConfirmPassword ? 'text' : 'password'}
+                className="form-control"
+                placeholder="••••••••"
+                value={confirmPassword}
+                onChange={(e) => setConfirmPassword(e.target.value)}
+                required
+              />
+              <button
+                type="button"
+                className="password-toggle"
+                onClick={() => setShowConfirmPassword(v => !v)}
+                tabIndex={-1}
+                aria-label={showConfirmPassword ? 'Hide password' : 'Show password'}
+              >
+                {showConfirmPassword ? <EyeOff size={16} /> : <Eye size={16} />}
+              </button>
+            </div>
           </div>
 
           <button type="submit" className="btn btn-primary" style={{ width: '100%', marginTop: '0.5rem' }}>

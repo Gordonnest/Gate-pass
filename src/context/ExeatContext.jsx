@@ -15,6 +15,24 @@ export function ExeatProvider({ children }) {
   const [activeRole, setActiveRole] = useState(currentUser?.role || 'participant');
   const [currentLoginType, setCurrentLoginType] = useState(localStorage.getItem('GATEPASS_HUB_LOGIN_TYPE') || 'GatePass');
 
+  // Saved accounts for quick re-login
+  const [savedAccounts, setSavedAccounts] = useState(() => {
+    try {
+      const s = localStorage.getItem('GATEPASS_HUB_SAVED_ACCOUNTS');
+      return s ? JSON.parse(s) : [];
+    } catch { return []; }
+  });
+
+  const persistSavedAccounts = (list) => {
+    setSavedAccounts(list);
+    localStorage.setItem('GATEPASS_HUB_SAVED_ACCOUNTS', JSON.stringify(list));
+  };
+
+  const removeSavedAccount = (identifier) => {
+    const updated = savedAccounts.filter(a => a.identifier !== identifier);
+    persistSavedAccounts(updated);
+  };
+
   const [attendanceSession, setAttendanceSession] = useState(null);
   const [sessionPINs, setSessionPINs] = useState([]);
   const [attendanceRecords, setAttendanceRecords] = useState([]);
@@ -164,6 +182,26 @@ export function ExeatProvider({ children }) {
     setCurrentLoginType(loginType);
     localStorage.setItem('GATEPASS_HUB_USER_V1', JSON.stringify(userObj));
     localStorage.setItem('GATEPASS_HUB_LOGIN_TYPE', loginType);
+
+    // Upsert into savedAccounts list
+    const identifier = userObj.studentId || userObj.email || userObj.name;
+    const accountEntry = {
+      identifier,
+      name: userObj.name,
+      role: userObj.role,
+      email: userObj.email || '',
+      studentId: userObj.studentId || '',
+      password: userObj.password || '',
+      loginType,
+      lastLogin: new Date().toISOString(),
+    };
+    setSavedAccounts(prev => {
+      const filtered = prev.filter(a => a.identifier !== identifier);
+      const updated = [accountEntry, ...filtered].slice(0, 10); // keep max 10
+      localStorage.setItem('GATEPASS_HUB_SAVED_ACCOUNTS', JSON.stringify(updated));
+      return updated;
+    });
+
     showToast(`Welcome back, ${userObj.name}!`, 'success');
   };
 
@@ -490,7 +528,9 @@ export function ExeatProvider({ children }) {
       verifyPIN,
       assignClassBatch,
       assignIndividualStudent,
-      assignClassFacilitator
+      assignClassFacilitator,
+      savedAccounts,
+      removeSavedAccount,
     }}>
       {children}
     </ExeatContext.Provider>
