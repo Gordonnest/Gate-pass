@@ -9,22 +9,30 @@ export default function StudentAttendance() {
   const inputRefs = [useRef(null), useRef(null), useRef(null)];
 
   const record = (() => {
-    if (!attendanceSession?.openedAt) return null;
-    const openedAtStr = attendanceSession.openedAt.endsWith('Z') || attendanceSession.openedAt.includes('+')
-      ? attendanceSession.openedAt
-      : attendanceSession.openedAt + 'Z';
-    const sessionStart = new Date(openedAtStr);
-    
-    return attendanceRecords.find(r => {
-      if (r.studentId !== currentUser?.studentId) return false;
-      const recordTimeStr = r.markedAt.endsWith('Z') || r.markedAt.includes('+')
-        ? r.markedAt
-        : r.markedAt + 'Z';
-      return new Date(recordTimeStr) >= sessionStart;
-    });
+    const todayStr = new Date().toISOString().split('T')[0];
+    return attendanceRecords.find(r => 
+      r.studentId === currentUser?.studentId && 
+      r.status === 'PRESENT' &&
+      r.markedAt.split('T')[0] === todayStr
+    );
   })();
 
-  const isLive = attendanceSession?.status === 'OPEN';
+  const [isLive, setIsLive] = useState(false);
+
+  React.useEffect(() => {
+    // If they already have a PRESENT record today, they shouldn't see the live PIN input again.
+    if (record && record.status === 'PRESENT') {
+      setIsLive(false);
+      return;
+    }
+
+    if (!attendanceSession || attendanceSession.status !== 'OPEN') {
+      setIsLive(false);
+      return;
+    }
+
+    setIsLive(true);
+  }, [attendanceSession, record]);
 
   const handleChange = (index, value) => {
     if (!/^\d*$/.test(value)) return;
@@ -43,10 +51,10 @@ export default function StudentAttendance() {
     }
   };
 
-  const handleSubmit = () => {
+  const handleSubmit = async () => {
     const fullPin = pin.join('');
     if (fullPin.length === 3) {
-      const success = verifyPIN(fullPin);
+      const success = await verifyPIN(fullPin);
       if (success) {
         setPin(['', '', '']);
       }

@@ -3,17 +3,28 @@ import { UserCheck, FileSpreadsheet, Database, Search, Check, X, MapPin, Phone, 
 import { useExeat } from '../context/ExeatContext';
 
 export default function AdminPortal() {
-  const { requests, exportToCSV, setActiveModal, setSelectedRequest } = useExeat();
+  const { requests, exportToCSV, setActiveModal, setSelectedRequest, currentUser, users } = useExeat();
   const [historySearch, setHistorySearch] = useState('');
 
-  const pendingList = requests.filter(r => r.status === 'PENDING');
+  const canSeeRequest = (req) => {
+    if (!currentUser) return false;
+    if (currentUser.role === 'superadmin' || currentUser.canApproveAll) return true;
+    
+    const applicant = users.find(u => u.studentId === req.applicantId);
+    return applicant && applicant.assignedTutorId === currentUser.id;
+  };
+
+  const pendingList = requests.filter(r => r.status === 'PENDING' && canSeeRequest(r));
 
   const historyList = requests.filter(r => 
-    r.applicantName.toLowerCase().includes(historySearch.toLowerCase()) ||
+    canSeeRequest(r) &&
+    (r.applicantName.toLowerCase().includes(historySearch.toLowerCase()) ||
     r.applicantId.toLowerCase().includes(historySearch.toLowerCase()) ||
     (r.passId && r.passId.toLowerCase().includes(historySearch.toLowerCase())) ||
-    r.destination.toLowerCase().includes(historySearch.toLowerCase())
+    r.destination.toLowerCase().includes(historySearch.toLowerCase()))
   );
+
+  const displayedHistoryList = historySearch.trim() === '' ? historyList.slice(0, 10) : historyList;
 
   const handleActionClick = (req, actionType) => {
     setSelectedRequest({ ...req, actionType });
@@ -142,7 +153,7 @@ export default function AdminPortal() {
               </tr>
             </thead>
             <tbody>
-              {historyList.map(req => (
+              {displayedHistoryList.map(req => (
                 <tr key={req.id}>
                   <td>{req.passId ? <span className="code-pill">{req.passId}</span> : <span className="text-muted">N/A</span>}</td>
                   <td>

@@ -28,7 +28,7 @@ export default function StatsGrid() {
           </div>
         </div>
         <div className="stat-card">
-          <div class="stat-icon icon-cyan"><UserCheck size={24} /></div>
+          <div className="stat-icon icon-cyan"><UserCheck size={24} /></div>
           <div className="stat-details">
             <span className="stat-label">Participants Out of Camp</span>
             <h3>{activeOut}</h3>

@@ -6,11 +6,6 @@ export default function LoginPortal({ onSwitchMode }) {
   const { users, fetchUsers, loginUser, showToast } = useExeat();
   const [tab, setTab] = useState('student'); // 'student' | 'admin' | 'security'
   const [isSubmitting, setIsSubmitting] = useState(false);
-
-  // Password visibility state
-  const [showStudentPassword, setShowStudentPassword] = useState(false);
-  const [showAdminPassword, setShowAdminPassword] = useState(false);
-  const [showSecPassword, setShowSecPassword] = useState(false);
   
   // Student Form State
   const [studentIdInput, setStudentIdInput] = useState('');
@@ -104,6 +99,8 @@ export default function LoginPortal({ onSwitchMode }) {
     if (match) {
       if (match.password && match.password !== adminPassword) {
         showToast('Incorrect password', 'error');
+      } else if (match.role === 'superadmin' && adminLoginType === 'Attendance') {
+        showToast('Super Admins cannot access the Attendance portal', 'error');
       } else {
         loginUser(match, adminLoginType);
       }
@@ -147,6 +144,8 @@ export default function LoginPortal({ onSwitchMode }) {
     if (match) {
       if (match.password && match.password !== secPassword) {
         showToast('Incorrect password', 'error');
+      } else if (match.isActivated === false || match.isactivated === false || (!match.isActivated && !match.isactivated)) {
+        showToast('Your account is pending activation by a Super Admin.', 'error');
       } else {
         loginUser(match);
       }
@@ -174,7 +173,7 @@ export default function LoginPortal({ onSwitchMode }) {
             <Shield size={32} />
           </div> */}
           <h2>ABIA <span>TECHRISE</span></h2>
-          <p>Digital Exit Permission/Gate Control System &amp; Atendance System</p>
+          <p>Digital Exit Permission/Gate Control System & Atendance System</p>
         </div>
 
         {/* Role Tabs */}
@@ -215,24 +214,13 @@ export default function LoginPortal({ onSwitchMode }) {
             </div>
             <div className="form-group">
               <label><Key size={14} style={{ display: 'inline', marginRight: 4 }} /> Password</label>
-              <div className="password-wrapper">
-                <input
-                  type={showStudentPassword ? 'text' : 'password'}
-                  className="form-control"
-                  placeholder="••••••••"
-                  value={studentPassword}
-                  onChange={(e) => setStudentPassword(e.target.value)}
-                />
-                <button
-                  type="button"
-                  className="password-toggle"
-                  onClick={() => setShowStudentPassword(v => !v)}
-                  tabIndex={-1}
-                  aria-label={showStudentPassword ? 'Hide password' : 'Show password'}
-                >
-                  {showStudentPassword ? <EyeOff size={16} /> : <Eye size={16} />}
-                </button>
-              </div>
+              <input
+                type="password"
+                className="form-control"
+                placeholder="••••••••"
+                value={studentPassword}
+                onChange={(e) => setStudentPassword(e.target.value)}
+              />
             </div>
             <div className="form-group">
               <label>Login Type</label>
@@ -266,24 +254,13 @@ export default function LoginPortal({ onSwitchMode }) {
             </div>
             <div className="form-group">
               <label><Key size={14} style={{ display: 'inline', marginRight: 4 }} /> Admin Security Password</label>
-              <div className="password-wrapper">
-                <input
-                  type={showAdminPassword ? 'text' : 'password'}
-                  className="form-control"
-                  placeholder="••••••••"
-                  value={adminPassword}
-                  onChange={(e) => setAdminPassword(e.target.value)}
-                />
-                <button
-                  type="button"
-                  className="password-toggle"
-                  onClick={() => setShowAdminPassword(v => !v)}
-                  tabIndex={-1}
-                  aria-label={showAdminPassword ? 'Hide password' : 'Show password'}
-                >
-                  {showAdminPassword ? <EyeOff size={16} /> : <Eye size={16} />}
-                </button>
-              </div>
+              <input
+                type="password"
+                className="form-control"
+                placeholder="••••••••"
+                value={adminPassword}
+                onChange={(e) => setAdminPassword(e.target.value)}
+              />
             </div>
             <div className="form-group">
               <label>Login Type</label>
@@ -317,24 +294,13 @@ export default function LoginPortal({ onSwitchMode }) {
             </div>
             <div className="form-group">
               <label><Key size={14} style={{ display: 'inline', marginRight: 4 }} /> Security Gate Password</label>
-              <div className="password-wrapper">
-                <input
-                  type={showSecPassword ? 'text' : 'password'}
-                  className="form-control"
-                  placeholder="••••••••"
-                  value={secPassword}
-                  onChange={(e) => setSecPassword(e.target.value)}
-                />
-                <button
-                  type="button"
-                  className="password-toggle"
-                  onClick={() => setShowSecPassword(v => !v)}
-                  tabIndex={-1}
-                  aria-label={showSecPassword ? 'Hide password' : 'Show password'}
-                >
-                  {showSecPassword ? <EyeOff size={16} /> : <Eye size={16} />}
-                </button>
-              </div>
+              <input
+                type="password"
+                className="form-control"
+                placeholder="••••••••"
+                value={secPassword}
+                onChange={(e) => setSecPassword(e.target.value)}
+              />
             </div>
             <button type="submit" className="btn btn-primary" style={{ width: '100%', marginTop: '0.5rem' }}>
               <LogIn size={16} /> Access Gate Security Terminal <ArrowRight size={16} />

@@ -1,10 +1,41 @@
 import React, { useState, useMemo } from 'react';
-import { Users, BookOpen, Save, Settings } from 'lucide-react';
+import { createPortal } from 'react-dom';
+import { Users, BookOpen, Save, Settings, ShieldAlert, Trash2 } from 'lucide-react';
 import { useExeat } from '../context/ExeatContext';
 
-export default function ClassAssignmentPanel() {
-  const { users, assignIndividualStudent, assignClassFacilitator, activeRole } = useExeat();
+export default function ClassAssignmentPanel({ activeTab = 'all' }) {
+  const { users, assignIndividualStudent, assignClassFacilitator, activeRole, toggleFacilitatorGlobalApproval, toggleSecurityActivation, transferStudentTrack, softDeleteUser } = useExeat();
   const [selectedTrack, setSelectedTrack] = useState('');
+  
+  const [savingGlobalApprovalId, setSavingGlobalApprovalId] = useState(null);
+  const [savingSecurityId, setSavingSecurityId] = useState(null);
+  const [processingDeleteId, setProcessingDeleteId] = useState(null);
+  const [userToDelete, setUserToDelete] = useState(null);
+
+  const handleDeleteUser = (user) => {
+    setUserToDelete(user);
+  };
+
+  const confirmDeleteUser = async () => {
+    if (userToDelete) {
+      setProcessingDeleteId(userToDelete.id);
+      await softDeleteUser(userToDelete.id);
+      setProcessingDeleteId(null);
+      setUserToDelete(null);
+    }
+  };
+  
+  const handleToggleGlobalApproval = async (tutor) => {
+    setSavingGlobalApprovalId(tutor.id);
+    await toggleFacilitatorGlobalApproval(tutor.id, tutor.canApproveAll);
+    setSavingGlobalApprovalId(null);
+  };
+
+  const handleToggleSecurityActivation = async (sec) => {
+    setSavingSecurityId(sec.id);
+    await toggleSecurityActivation(sec.id, sec.isActivated);
+    setSavingSecurityId(null);
+  };
   
   // Local state for dropdowns by student id
   const [studentAssignments, setStudentAssignments] = useState({});
@@ -14,15 +45,7 @@ export default function ClassAssignmentPanel() {
   const [classFacilitators, setClassFacilitators] = useState({ A: '', B: '', C: '' });
   const [savingClassFacilitator, setSavingClassFacilitator] = useState(null);
 
-  // We only want superadmin to use this
-  if (activeRole !== 'superadmin') {
-    return (
-      <div className="card" style={{ padding: '2rem', textAlign: 'center' }}>
-        <h3 style={{ color: '#ef4444' }}>Access Denied</h3>
-        <p>You do not have permission to view this module.</p>
-      </div>
-    );
-  }
+
 
   const tracks = useMemo(() => {
     const allTracks = users.filter(u => u.role === 'participant' && u.track).map(u => u.track);
@@ -31,6 +54,10 @@ export default function ClassAssignmentPanel() {
 
   const tutors = useMemo(() => {
     return users.filter(u => u.role === 'admin');
+  }, [users]);
+
+  const securityOfficers = useMemo(() => {
+    return users.filter(u => u.role === 'security');
   }, [users]);
 
   // All students in selected track
@@ -59,7 +86,7 @@ export default function ClassAssignmentPanel() {
             }
           }
         }
-        initialAssigments[s.id] = { classLetter: currentClassLetter };
+        initialAssigments[s.id] = { classLetter: currentClassLetter, track: s.track || '' };
       });
       
       setStudentAssignments(initialAssigments);
@@ -85,12 +112,19 @@ export default function ClassAssignmentPanel() {
 
   const handleSaveStudent = async (student) => {
     const assignment = studentAssignments[student.id];
-    if (!assignment || !assignment.classLetter) return;
+    if (!assignment) return;
     
     setSavingId(student.id);
-    const className = `${selectedTrack.toUpperCase()} CLASS ${assignment.classLetter}`;
-    const mappedTutorId = classFacilitators[assignment.classLetter] || null;
-    await assignIndividualStudent(student.id, className, mappedTutorId);
+    
+    // Transfer track if it changed
+    if (assignment.track !== student.track) {
+      await transferStudentTrack(student.id, assignment.track);
+    } else {
+      // Just normal class assignment
+      const className = `${selectedTrack.toUpperCase()} CLASS ${assignment.classLetter}`;
+      const mappedTutorId = classFacilitators[assignment.classLetter] || null;
+      await assignIndividualStudent(student.id, className, mappedTutorId);
+    }
     setSavingId(null);
   };
 
@@ -120,29 +154,43 @@ export default function ClassAssignmentPanel() {
     );
   };
 
+  // We only want superadmin to use this
+  if (activeRole !== 'superadmin') {
+    return (
+      <div className="card" style={{ padding: '2rem', textAlign: 'center' }}>
+        <h3 style={{ color: '#ef4444' }}>Access Denied</h3>
+        <p>You do not have permission to view this module.</p>
+      </div>
+    );
+  }
+
   return (
-    <div className="card" style={{ marginBottom: '2rem' }}>
-      <div className="panel-header">
-        <div>
-          <h3><BookOpen size={20} /> Student Class Assignment</h3>
-          <p className="panel-subtitle">Assign registered students to classes and select their facilitators.</p>
+    <div className="card panel-header-card" style={{ marginTop: '2rem' }}>
+      {(activeTab === 'all' || activeTab === 'assignments') && (
+        <div className="panel-header" style={{ marginBottom: '0' }}>
+          <div>
+            <h3><BookOpen size={20} /> Class & Facilitator Assignments</h3>
+            <p className="panel-subtitle">Assign students to classes and assign facilitators to those classes.</p>
+          </div>
         </div>
-      </div>
+      )}
 
-      <div style={{ padding: '1rem', borderBottom: '1px solid var(--border-color)' }}>
-        <label style={{ display: 'block', marginBottom: '0.5rem', fontSize: '0.9rem', fontWeight: 'bold' }}>Select Course / Track</label>
-        <select 
-          className="form-control" 
-          value={selectedTrack} 
-          onChange={(e) => setSelectedTrack(e.target.value)}
-          style={{ maxWidth: '400px' }}
-        >
-          <option value="">-- Choose a Course --</option>
-          {tracks.map(t => <option key={t} value={t}>{t}</option>)}
-        </select>
-      </div>
+      {(activeTab === 'all' || activeTab === 'assignments') && (
+        <div style={{ padding: '1rem', borderBottom: '1px solid var(--border-color)' }}>
+          <label style={{ display: 'block', marginBottom: '0.5rem', fontSize: '0.9rem', fontWeight: 'bold' }}>Select Course / Track</label>
+          <select 
+            className="form-control" 
+            value={selectedTrack} 
+            onChange={(e) => setSelectedTrack(e.target.value)}
+            style={{ maxWidth: '400px' }}
+          >
+            <option value="">-- Choose a Course --</option>
+            {tracks.map(t => <option key={t} value={t}>{t}</option>)}
+          </select>
+        </div>
+      )}
 
-      {selectedTrack && (
+      {selectedTrack && (activeTab === 'all' || activeTab === 'assignments') && (
         <div style={{ padding: '1.5rem' }}>
           
           {/* Global Class Configuration */}
@@ -194,69 +242,89 @@ export default function ClassAssignmentPanel() {
           </h4>
           
           {allStudentsInTrack.length > 0 ? (
-            <div style={{ overflowX: 'auto', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-sm)' }}>
-              <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.9rem' }}>
-                <thead style={{ backgroundColor: 'var(--bg-surface)' }}>
-                  <tr>
-                    <th style={{ padding: '1rem', textAlign: 'left', borderBottom: '1px solid var(--border-color)' }}>Student Details</th>
-                    <th style={{ padding: '1rem', textAlign: 'left', borderBottom: '1px solid var(--border-color)' }}>Class Group</th>
-                    <th style={{ padding: '1rem', textAlign: 'left', borderBottom: '1px solid var(--border-color)' }}>Current Facilitator</th>
-                    <th style={{ padding: '1rem', textAlign: 'right', borderBottom: '1px solid var(--border-color)' }}>Action</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {allStudentsInTrack.map(s => {
-                    const assignment = studentAssignments[s.id] || { classLetter: '' };
-                    
-                    // The actual facilitator name for this student based on their DB record
-                    let currentTutorName = 'N/A';
-                    if (s.assignedTutorId) {
-                      const t = tutors.find(t => t.id === s.assignedTutorId);
-                      if (t) currentTutorName = t.name;
-                    }
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(min(100%, 300px), 1fr))', gap: '1rem' }}>
+              {allStudentsInTrack.map(s => {
+                const assignment = studentAssignments[s.id] || { classLetter: '', track: s.track || '' };
+                
+                // The actual facilitator name for this student based on their DB record
+                let currentTutorName = 'N/A';
+                if (s.assignedTutorId) {
+                  const t = tutors.find(t => t.id === s.assignedTutorId);
+                  if (t) currentTutorName = t.name;
+                }
 
-                    const isDirty = (
-                      (assignment.classLetter !== (s.assignedClass ? s.assignedClass.match(/CLASS\s+([A-C])$/i)?.[1] || '' : ''))
-                    );
+                const isTrackDirty = assignment.track !== s.track;
+                const isClassDirty = (assignment.classLetter !== (s.assignedClass ? s.assignedClass.match(/CLASS\s+([A-C])$/i)?.[1] || '' : ''));
+                const isDirty = isTrackDirty || isClassDirty;
+                
+                // Prevent class assignment if track is changed (force them to save transfer first)
+                const canAssignClass = !isTrackDirty;
 
-                    return (
-                      <tr key={s.id} style={{ borderBottom: '1px solid var(--border-color)' }}>
-                        <td style={{ padding: '1rem' }}>
-                          <strong>{s.name}</strong>
-                          <br />
-                          <small className="text-muted">{s.studentId}</small>
-                        </td>
-                        <td style={{ padding: '1rem' }}>
-                          <select
-                            className="form-control"
-                            value={assignment.classLetter}
-                            onChange={(e) => handleAssignmentChange(s.id, 'classLetter', e.target.value)}
-                            style={{ minWidth: '120px', backgroundColor: 'var(--bg-primary)' }}
-                          >
-                            <option value="">-- None --</option>
-                            <option value="A">Class A</option>
-                            <option value="B">Class B</option>
-                            <option value="C">Class C</option>
-                          </select>
-                        </td>
-                        <td style={{ padding: '1rem', color: 'var(--text-muted)' }}>
-                          {currentTutorName}
-                        </td>
-                        <td style={{ padding: '1rem', textAlign: 'right' }}>
-                          <button 
-                            className="btn btn-primary btn-sm"
-                            disabled={savingId === s.id || !assignment.classLetter || !isDirty}
-                            onClick={() => handleSaveStudent(s)}
-                            style={{ display: 'inline-flex', alignItems: 'center', gap: '4px' }}
-                          >
-                            {savingId === s.id ? 'Saving...' : <><Save size={14} /> Save</>}
-                          </button>
-                        </td>
-                      </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
+                return (
+                  <div key={s.id} className="user-card" style={{ alignItems: 'flex-start', textAlign: 'left' }}>
+                    <div style={{ width: '100%', display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '0.5rem' }}>
+                      <div>
+                        <strong style={{ fontSize: '1.05rem' }}>{s.name}</strong><br />
+                        <small className="text-muted">{s.studentId}</small>
+                      </div>
+                      <div style={{ textAlign: 'right' }}>
+                        <small className="text-muted" style={{ display: 'block', fontSize: '0.75rem' }}>Facilitator</small>
+                        <span style={{ fontSize: '0.85rem', fontWeight: '500' }}>{currentTutorName}</span>
+                      </div>
+                    </div>
+
+                    <div style={{ width: '100%', display: 'flex', gap: '0.75rem', marginBottom: '1rem' }}>
+                      <div style={{ flex: 1 }}>
+                        <label style={{ display: 'block', fontSize: '0.8rem', marginBottom: '0.3rem', color: 'var(--text-muted)' }}>Track</label>
+                        <select 
+                          className="form-control" 
+                          value={assignment.track} 
+                          onChange={(e) => handleAssignmentChange(s.id, 'track', e.target.value)} 
+                          style={{ width: '100%', padding: '0.4rem', fontSize: '0.9rem', backgroundColor: 'var(--bg-primary)' }}
+                        >
+                          <option value="">-- None --</option>
+                          {tracks.map(t => <option key={t} value={t}>{t}</option>)}
+                        </select>
+                      </div>
+                      <div style={{ flex: 1 }}>
+                        <label style={{ display: 'block', fontSize: '0.8rem', marginBottom: '0.3rem', color: 'var(--text-muted)' }}>Class</label>
+                        <select 
+                          className="form-control" 
+                          value={assignment.classLetter} 
+                          onChange={(e) => handleAssignmentChange(s.id, 'classLetter', e.target.value)} 
+                          disabled={!canAssignClass} 
+                          style={{ width: '100%', padding: '0.4rem', fontSize: '0.9rem', backgroundColor: canAssignClass ? 'var(--bg-primary)' : 'var(--bg-surface)' }}
+                        >
+                          <option value="">-- None --</option>
+                          <option value="A">Class A</option>
+                          <option value="B">Class B</option>
+                          <option value="C">Class C</option>
+                        </select>
+                      </div>
+                    </div>
+
+                    <div style={{ width: '100%', display: 'flex', gap: '0.5rem' }}>
+                      <button 
+                        className={`btn btn-sm ${isTrackDirty ? 'btn-danger' : 'btn-primary'}`}
+                        disabled={savingId === s.id || processingDeleteId === s.id || (!assignment.classLetter && !isTrackDirty) || !isDirty}
+                        onClick={() => handleSaveStudent(s)}
+                        style={{ flex: 1, display: 'flex', justifyContent: 'center', alignItems: 'center', gap: '0.5rem', padding: '0.5rem' }}
+                      >
+                        {savingId === s.id ? 'Saving...' : (isTrackDirty ? 'Transfer' : <><Save size={16} /> Save</>)}
+                      </button>
+                      <button 
+                        className="btn btn-sm btn-outline"
+                        disabled={processingDeleteId === s.id}
+                        onClick={() => handleDeleteUser(s)}
+                        style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '0.5rem 0.75rem', border: '1px solid #ef4444', color: '#ef4444' }}
+                        title="Delete Student"
+                      >
+                        <Trash2 size={16} />
+                      </button>
+                    </div>
+                  </div>
+                );
+              })}
             </div>
           ) : (
             <div className="empty-state" style={{ padding: '2rem' }}>
@@ -264,6 +332,130 @@ export default function ClassAssignmentPanel() {
             </div>
           )}
         </div>
+      )}
+
+      {/* Global Facilitator Approvals */}
+      {(activeTab === 'all' || activeTab === 'facilitators') && (
+        <div style={{ padding: '1.5rem', borderTop: activeTab === 'all' ? '1px solid var(--border-color)' : 'none' }}>
+          <h4 style={{ margin: '0 0 1rem 0', display: 'flex', alignItems: 'center', gap: '0.5rem', color: 'var(--primary)' }}>
+            <Settings size={18} /> Facilitator Global Approval Rights
+          </h4>
+        <p className="text-muted" style={{ marginBottom: '1.5rem', fontSize: '0.9rem' }}>
+          By default, facilitators can only approve gate passes for students in their assigned class. 
+          Enable global approval below to allow a facilitator to approve passes for any student in the camp.
+        </p>
+
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(min(100%, 280px), 1fr))', gap: '1rem' }}>
+          {tutors.map(tutor => (
+            <div key={tutor.id} className="user-card">
+              <div>
+                <strong>{tutor.name}</strong><br />
+                <small className="text-muted">{tutor.studentId || 'Admin'}</small>
+              </div>
+              <div style={{ display: 'flex', gap: '0.5rem' }}>
+                <button 
+                  className={`btn btn-sm ${tutor.canApproveAll ? 'btn-success' : 'btn-outline'}`}
+                  onClick={() => handleToggleGlobalApproval(tutor)}
+                  disabled={savingGlobalApprovalId === tutor.id || processingDeleteId === tutor.id}
+                  style={{ minWidth: '130px' }}
+                >
+                  {savingGlobalApprovalId === tutor.id ? 'Saving...' : (tutor.canApproveAll ? 'Global Enabled' : 'Enable Global')}
+                </button>
+                <button 
+                  className="btn btn-sm btn-outline"
+                  disabled={processingDeleteId === tutor.id}
+                  onClick={() => handleDeleteUser(tutor)}
+                  style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', padding: '0.4rem', border: '1px solid #ef4444', color: '#ef4444' }}
+                  title="Delete Facilitator"
+                >
+                  <Trash2 size={14} />
+                </button>
+              </div>
+            </div>
+          ))}
+        </div>
+      </div>
+      )}
+
+      {/* Security Officers Configuration */}
+      {(activeTab === 'all' || activeTab === 'security') && (
+        <div style={{ padding: '1.5rem', borderTop: activeTab === 'all' ? '1px solid var(--border-color)' : 'none' }}>
+          <h4 style={{ margin: '0 0 1rem 0', display: 'flex', alignItems: 'center', gap: '0.5rem', color: 'var(--primary)' }}>
+            <ShieldAlert size={18} /> Security Officer Accounts
+          </h4>
+        <p className="text-muted" style={{ marginBottom: '1.5rem', fontSize: '0.9rem' }}>
+          Activate or revoke access for security officers. New security accounts must be activated before they can clock in/out students.
+        </p>
+
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(min(100%, 280px), 1fr))', gap: '1rem' }}>
+          {securityOfficers.map(sec => (
+            <div key={sec.id} className="user-card">
+              <div>
+                <strong>{sec.name}</strong><br />
+                <small className="text-muted">{sec.email || 'No email'}</small>
+              </div>
+              <div style={{ display: 'flex', gap: '0.5rem' }}>
+                <button 
+                  className={`btn btn-sm ${sec.isActivated ? 'btn-success' : 'btn-outline'}`}
+                  onClick={() => handleToggleSecurityActivation(sec)}
+                  disabled={savingSecurityId === sec.id || processingDeleteId === sec.id}
+                  style={{ minWidth: '130px' }}
+                >
+                  {savingSecurityId === sec.id ? 'Saving...' : (sec.isActivated ? 'Access Granted' : 'Grant Access')}
+                </button>
+                <button 
+                  className="btn btn-sm btn-outline"
+                  disabled={processingDeleteId === sec.id}
+                  onClick={() => handleDeleteUser(sec)}
+                  style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', padding: '0.4rem', border: '1px solid #ef4444', color: '#ef4444' }}
+                  title="Delete Security Officer"
+                >
+                  <Trash2 size={14} />
+                </button>
+              </div>
+            </div>
+          ))}
+          {securityOfficers.length === 0 && (
+            <div className="text-muted" style={{ fontStyle: 'italic' }}>No security officers found in the system.</div>
+          )}
+        </div>
+      </div>
+      )}
+
+      {/* Delete Confirmation Modal */}
+      {userToDelete && createPortal(
+        <div className="modal-overlay" style={{ zIndex: 9999 }}>
+          <div className="modal-card" style={{ maxWidth: '400px' }}>
+            <div className="modal-header" style={{ backgroundColor: 'rgba(239, 68, 68, 0.1)', borderBottom: '1px solid rgba(239, 68, 68, 0.2)' }}>
+              <h3 style={{ color: '#ef4444', display: 'flex', alignItems: 'center', gap: '0.5rem', margin: 0 }}>
+                <ShieldAlert size={20} /> Delete User
+              </h3>
+              <button className="modal-close" onClick={() => setUserToDelete(null)}>&times;</button>
+            </div>
+            <div className="modal-body">
+              <p style={{ marginBottom: '1rem' }}>
+                Are you sure you want to delete <strong>{userToDelete.name}</strong>?
+              </p>
+              <p style={{ marginBottom: '1.5rem', color: 'var(--text-muted)' }}>
+                They will be moved to Recently Deleted and will lose active access.
+              </p>
+
+              <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '1rem' }}>
+                <button className="btn btn-outline" onClick={() => setUserToDelete(null)}>
+                  Cancel
+                </button>
+                <button 
+                  className="btn btn-danger"
+                  disabled={processingDeleteId === userToDelete.id}
+                  onClick={confirmDeleteUser}
+                >
+                  {processingDeleteId === userToDelete.id ? 'Deleting...' : 'Yes, Delete'}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>,
+        document.body
       )}
     </div>
   );

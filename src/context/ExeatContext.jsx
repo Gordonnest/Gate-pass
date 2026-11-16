@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useState, useEffect } from 'react';
+import React, { createContext, useContext, useState, useEffect, useRef } from 'react';
 import { supabase } from '../utils/supabase';
 
 const ExeatContext = createContext();
@@ -6,6 +6,7 @@ const ExeatContext = createContext();
 export function ExeatProvider({ children }) {
   const [requests, setRequests] = useState([]);
   const [users, setUsers] = useState([]);
+  const [deletedUsers, setDeletedUsers] = useState([]);
   
   // Keep current session in localStorage to persist login across reloads
   const [currentUser, setCurrentUser] = useState(() => {
@@ -41,6 +42,12 @@ export function ExeatProvider({ children }) {
   const [activeModal, setActiveModal] = useState(null);
   const [selectedRequest, setSelectedRequest] = useState(null);
   const [toasts, setToasts] = useState([]);
+
+  // Use a ref to keep track of the latest currentUser for realtime subscription callbacks
+  const currentUserRef = useRef(currentUser);
+  useEffect(() => {
+    currentUserRef.current = currentUser;
+  }, [currentUser]);
 
   // Load Initial Data from Supabase
   useEffect(() => {
@@ -114,11 +121,17 @@ export function ExeatProvider({ children }) {
     } catch (e) {}
   };
 
+  useEffect(() => {
+    fetchAttendanceData();
+  }, [currentUser?.id]);
+
   async function fetchUsers() {
     try {
       const { data, error } = await supabase.from('users').select('*');
+      if (error) console.error('fetchUsers error:', error);
       if (!error && data && data.length > 0) {
-        setUsers(data);
+        setUsers(data.filter(u => !u.deletedAt));
+        setDeletedUsers(data.filter(u => u.deletedAt));
         saveLocalUsers(data);
         return data;
       }
@@ -126,7 +139,8 @@ export function ExeatProvider({ children }) {
       console.warn("Supabase fetch users offline/failed, using local fallback.", e);
     }
     const local = getLocalUsers();
-    setUsers(local);
+    setUsers(local.filter(u => !u.deletedAt));
+    setDeletedUsers(local.filter(u => u.deletedAt));
     return local;
   }
 
@@ -151,14 +165,31 @@ export function ExeatProvider({ children }) {
 
   async function fetchAttendanceData() {
     try {
-      const { data: sessionData } = await supabase.from('attendance_sessions').select('*').order('openedAt', { ascending: false }).limit(1);
+      const user = currentUserRef.current;
+      const { data: sessionData } = await supabase.from('attendance_sessions').select('*').order('openedAt', { ascending: false }).limit(50);
+      
+      let relevantSession = null;
       if (sessionData && sessionData.length > 0) {
-        setAttendanceSession(sessionData[0]);
+        if (user?.role === 'participant') {
+          if (user?.assignedTutorId) {
+            relevantSession = sessionData.find(s => s.id.includes(user.assignedTutorId));
+          }
+        } else if (user?.role === 'superadmin') {
+          relevantSession = sessionData[0];
+        } else if (user?.id) {
+          relevantSession = sessionData.find(s => s.id.includes(user.id));
+        }
+      }
+
+      if (relevantSession) {
+        setAttendanceSession(relevantSession);
         
         const { data: pinsData } = await supabase.from('attendance_pins').select('*');
-        if (pinsData) setSessionPINs(pinsData);
+        if (pinsData && pinsData.length > 0) {
+          setSessionPINs(pinsData);
+        }
         
-        const { data: recordsData } = await supabase.from('attendance_records').select('*');
+        const { data: recordsData } = await supabase.from('attendance_records').select('*').order('markedAt', { ascending: false });
         if (recordsData) setAttendanceRecords(recordsData);
       } else {
         setAttendanceSession(null);
@@ -209,8 +240,16 @@ export function ExeatProvider({ children }) {
     let userToLogin = newUserObj;
     try {
       const { data, error } = await supabase.from('users').insert([newUserObj]).select();
-      if (!error && data && data.length > 0) {
+      if (error) {
+        showToast('Registration failed: ' + error.message, 'error');
+        return;
+      } else if (data && data.length > 0) {
         userToLogin = data[0];
+        const isAct = userToLogin.isActivated !== undefined ? userToLogin.isActivated : userToLogin.isactivated;
+        if (userToLogin.role === 'security' && (isAct === false || isAct === undefined)) {
+          showToast('Security account created! Please wait for a Super Admin to grant you access.', 'info');
+          return;
+        }
       }
     } catch (e) {
       console.warn("Supabase insert offline, saving locally.", e);
@@ -219,7 +258,7 @@ export function ExeatProvider({ children }) {
     const currentLocal = getLocalUsers();
     const updatedLocal = [...currentLocal.filter(u => u.email !== userToLogin.email), userToLogin];
     saveLocalUsers(updatedLocal);
-    setUsers(updatedLocal);
+    setUsers(updatedLocal.filter(u => !u.deletedAt));
 
     loginUser(userToLogin);
   };
@@ -300,7 +339,8 @@ export function ExeatProvider({ children }) {
   };
 
   const openAttendanceSession = async () => {
-    const sessionId = 'ATT-' + Date.now();
+    if (!currentUser) return;
+    const sessionId = `ATT-${currentUser.id}-${Date.now()}`;
     const expiresAt = new Date(Date.now() + 60 * 60 * 1000).toISOString();
     
     const { error: sessionError } = await supabase.from('attendance_sessions').insert([{
@@ -310,49 +350,65 @@ export function ExeatProvider({ children }) {
     }]);
 
     if (!sessionError) {
-      // Delete old pins to prevent finding old pins
-      await supabase.from('attendance_pins').delete().neq('studentId', 'dummy');
+      const participants = users.filter(u => u.role === 'participant' && u.assignedTutorId === currentUser.id && u.studentId);
       
-      const participants = users.filter(u => u.role === 'participant' && u.studentId);
-      const newPINs = participants.map(p => ({
+      const todayStr = new Date().toISOString().split('T')[0];
+      const eligibleParticipants = participants.filter(p => {
+        const alreadyPresent = attendanceRecords.some(r => r.studentId === p.studentId && r.status === 'PRESENT' && r.markedAt.split('T')[0] === todayStr);
+        return !alreadyPresent;
+      });
+
+      // Delete old pins to prevent finding old pins
+      const participantIds = eligibleParticipants.map(p => p.studentId);
+      if (participantIds.length > 0) {
+        await supabase.from('attendance_pins').delete().in('studentId', participantIds);
+      }
+      
+      const newPINs = eligibleParticipants.map(p => ({
         studentId: p.studentId,
         pin: Math.floor(100 + Math.random() * 900).toString(),
         used: false
       }));
       if(newPINs.length > 0) {
+        // Optimistic UI Update for instant PIN display
+        setSessionPINs(newPINs);
+        setAttendanceSession({
+          id: sessionId,
+          status: 'OPEN',
+          expiresAt: expiresAt,
+          openedAt: new Date().toISOString()
+        });
+        
         const { error: pinError } = await supabase.from('attendance_pins').insert(newPINs);
         if (pinError) console.error("Error inserting pins:", pinError);
       }
       showToast('Attendance Session Opened', 'success');
-      fetchAttendanceData();
+      // Intentionally NOT calling fetchAttendanceData() here to prevent read-replica
+      // from returning an empty array before the INSERT propagates, which would cause pins to flicker to '---'.
     }
   };
 
   const closeAttendanceSession = async () => {
-    if (!attendanceSession) return;
+    if (!attendanceSession || attendanceSession.status !== 'OPEN') return;
+    
+    // Optimistic UI update to prevent double-firing and infinite loops
+    setAttendanceSession(prev => prev ? { ...prev, status: 'CLOSED' } : null);
     
     await supabase.from('attendance_sessions').update({ status: 'CLOSED' }).eq('id', attendanceSession.id);
     
     // Mark absent
-    const participants = users.filter(u => u.role === 'participant');
+    const participants = users.filter(u => u.role === 'participant' && u.assignedTutorId === currentUser?.id);
     const recordsToInsert = [];
     
-    // Only check records from this session
-    const openedAtStr = attendanceSession.openedAt.endsWith('Z') || attendanceSession.openedAt.includes('+')
-      ? attendanceSession.openedAt
-      : attendanceSession.openedAt + 'Z';
-    const sessionStart = new Date(openedAtStr);
+    const todayStr = new Date().toISOString().split('T')[0];
 
     participants.forEach(p => {
-      const hasRecordThisSession = attendanceRecords.find(r => {
+      const hasAnyRecordToday = attendanceRecords.some(r => {
         if (r.studentId !== p.studentId) return false;
-        const recordTimeStr = r.markedAt.endsWith('Z') || r.markedAt.includes('+')
-          ? r.markedAt
-          : r.markedAt + 'Z';
-        return new Date(recordTimeStr) >= sessionStart;
+        return r.markedAt.split('T')[0] === todayStr;
       });
 
-      if (!hasRecordThisSession) {
+      if (!hasAnyRecordToday) {
         recordsToInsert.push({
           studentId: p.studentId,
           status: 'ABSENT',
@@ -379,35 +435,55 @@ export function ExeatProvider({ children }) {
       return false;
     }
 
-    const record = sessionPINs.find(p => p.studentId === currentUser?.studentId);
-    if (!record || record.pin !== pin) {
+    const todayStr = new Date().toISOString().split('T')[0];
+    const existingAbsent = attendanceRecords.find(r => 
+      r.studentId === currentUser.studentId && 
+      r.status === 'ABSENT' && 
+      r.markedAt.split('T')[0] === todayStr
+    );
+
+    if (existingAbsent) {
+      await supabase.from('attendance_records').delete().eq('id', existingAbsent.id);
+      setAttendanceRecords(prev => prev.filter(r => r.id !== existingAbsent.id));
+    }
+
+    // Verify PIN directly against the DB to avoid Realtime sync race conditions
+    const { data: dbPin, error: pinError } = await supabase.from('attendance_pins')
+      .select('*')
+      .eq('studentId', currentUser.studentId)
+      .eq('pin', pin)
+      .single();
+
+    if (pinError || !dbPin) {
       showToast('Invalid PIN', 'error');
       return false;
     }
-    
-    const openedAtStr = attendanceSession.openedAt.endsWith('Z') || attendanceSession.openedAt.includes('+')
-      ? attendanceSession.openedAt
-      : attendanceSession.openedAt + 'Z';
-    const sessionStart = new Date(openedAtStr);
-    
-    const alreadyVerified = attendanceRecords.find(r => {
-      if (r.studentId !== currentUser.studentId) return false;
-      const recordTimeStr = r.markedAt.endsWith('Z') || r.markedAt.includes('+')
-        ? r.markedAt
-        : r.markedAt + 'Z';
-      return new Date(recordTimeStr) >= sessionStart;
-    });
 
-    if (alreadyVerified) {
-      return true; // Already verified
+    if (dbPin.used) {
+      showToast('PIN has already been used.', 'error');
+      return false;
     }
 
-    await supabase.from('attendance_pins').update({ used: true }).eq('id', record.id);
-    await supabase.from('attendance_records').insert([{
+    const { error: updateError } = await supabase.from('attendance_pins').update({ used: true }).eq('id', dbPin.id);
+    if (updateError) {
+      console.error('Error updating pin:', updateError);
+    }
+
+    const { data: newRecordData, error: insertError } = await supabase.from('attendance_records').insert([{
       studentId: currentUser.studentId,
-      status: 'PRESENT',
-      markedAt: new Date().toISOString()
-    }]);
+      status: 'PRESENT'
+    }]).select().single();
+
+    if (insertError) {
+      console.error('Error inserting attendance:', insertError);
+      showToast('Failed to record attendance', 'error');
+      return false;
+    }
+    
+    // Manually push to state to guarantee instant UI update (avoids DB read-replica delays)
+    if (newRecordData) {
+      setAttendanceRecords(prev => [newRecordData, ...prev]);
+    }
     
     showToast('Attendance Recorded', 'success');
     return true;
@@ -444,6 +520,25 @@ export function ExeatProvider({ children }) {
     }
   };
 
+  const transferStudentTrack = async (studentId, newTrack) => {
+    const { error } = await supabase
+      .from('users')
+      .update({ 
+        track: newTrack, 
+        assignedClass: null, 
+        assignedTutorId: null 
+      })
+      .eq('id', studentId);
+      
+    if (error) {
+      showToast('Failed to transfer student.', 'error');
+      return false;
+    } else {
+      showToast('Student successfully transferred to new course.', 'success');
+      return true;
+    }
+  };
+
   const assignClassFacilitator = async (className, tutorId) => {
     const { error } = await supabase
       .from('users')
@@ -455,6 +550,99 @@ export function ExeatProvider({ children }) {
       return false;
     } else {
       showToast(`Facilitator updated for ${className}`, 'success');
+      return true;
+    }
+  };
+
+  const toggleFacilitatorGlobalApproval = async (tutorId, currentStatus) => {
+    const { error } = await supabase
+      .from('users')
+      .update({ canApproveAll: !currentStatus })
+      .eq('id', tutorId);
+      
+    if (error) {
+      showToast(`Failed to update global approval rights: ${error.message || 'Unknown error'}`, 'error');
+      console.error("Global Approval Update Error:", error);
+      return false;
+    } else {
+      showToast('Global approval rights updated', 'success');
+      return true;
+    }
+  };
+
+  const toggleSecurityActivation = async (userId, currentStatus) => {
+    const { error } = await supabase
+      .from('users')
+      .update({ isActivated: !currentStatus })
+      .eq('id', userId);
+      
+    if (error) {
+      showToast(`Failed to update security officer access: ${error.message || 'Unknown error'}`, 'error');
+      console.error("Security Activation Update Error:", error);
+      return false;
+    } else {
+      showToast('Security officer access updated', 'success');
+      return true;
+    }
+  };
+
+  const softDeleteUser = async (userId) => {
+    const { error } = await supabase
+      .from('users')
+      .update({ deletedAt: new Date().toISOString() })
+      .eq('id', userId);
+      
+    if (error) {
+      showToast(`Failed to delete account: ${error.message}`, 'error');
+      return false;
+    } else {
+      showToast('Account moved to Recently Deleted.', 'success');
+      return true;
+    }
+  };
+
+  const restoreUser = async (userId) => {
+    const { error } = await supabase
+      .from('users')
+      .update({ deletedAt: null })
+      .eq('id', userId);
+      
+    if (error) {
+      showToast(`Failed to restore account: ${error.message}`, 'error');
+      return false;
+    } else {
+      showToast('Account successfully restored!', 'success');
+      return true;
+    }
+  };
+
+  const permanentlyDeleteUser = async (userId) => {
+    const { error } = await supabase
+      .from('users')
+      .delete()
+      .eq('id', userId);
+      
+    if (error) {
+      showToast(`Failed to permanently delete account: ${error.message}`, 'error');
+      return false;
+    } else {
+      showToast('Account permanently deleted.', 'success');
+      return true;
+    }
+  };
+
+  const startNewCohort = async () => {
+    const { error } = await supabase.rpc('reset_cohort_data');
+    if (error) {
+      showToast(`Failed to reset cohort data: ${error.message}`, 'error');
+      return false;
+    } else {
+      showToast('Successfully wiped cohort data. Starting fresh!', 'success');
+      // Refresh local state to reflect empty database
+      fetchUsers();
+      fetchRequests();
+      fetchAttendanceData();
+      fetchStudentPerformances();
       return true;
     }
   };
@@ -500,6 +688,7 @@ export function ExeatProvider({ children }) {
       requests,
       currentUser,
       users,
+      deletedUsers,
       fetchUsers,
       loginUser,
       logoutUser,
@@ -523,14 +712,22 @@ export function ExeatProvider({ children }) {
       sessionPINs,
       attendanceRecords,
       studentPerformances,
+      refreshAttendanceData: fetchAttendanceData,
       openAttendanceSession,
       closeAttendanceSession,
       verifyPIN,
       assignClassBatch,
       assignIndividualStudent,
+      transferStudentTrack,
       assignClassFacilitator,
+      toggleFacilitatorGlobalApproval,
+      toggleSecurityActivation,
+      softDeleteUser,
+      restoreUser,
+      permanentlyDeleteUser,
+      startNewCohort,
       savedAccounts,
-      removeSavedAccount,
+      removeSavedAccount
     }}>
       {children}
     </ExeatContext.Provider>

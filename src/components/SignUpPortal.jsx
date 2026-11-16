@@ -3,7 +3,7 @@ import { Shield, UserCheck, ShieldCheck, UserCog, UserPlus, ArrowLeft, Key, User
 import { useExeat } from '../context/ExeatContext';
 
 export default function SignUpPortal({ onSwitchMode }) {
-  const { registerUser, showToast } = useExeat();
+  const { users, registerUser, showToast } = useExeat();
   const [tab, setTab] = useState('student'); // 'student' | 'admin' | 'security'
 
   // Common State
@@ -12,10 +12,6 @@ export default function SignUpPortal({ onSwitchMode }) {
   const [phone, setPhone] = useState('');
   const [password, setPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
-
-  // Password visibility state
-  const [showPassword, setShowPassword] = useState(false);
-  const [showConfirmPassword, setShowConfirmPassword] = useState(false);
 
   // Role-Specific State
   const [studentId, setStudentId] = useState('');
@@ -45,6 +41,17 @@ export default function SignUpPortal({ onSwitchMode }) {
         showToast('Student ID and Track are required', 'error');
         return;
       }
+      const studentIdExists = users.some(u => u.studentId && u.studentId.toUpperCase() === studentId.toUpperCase());
+      if (studentIdExists) {
+        showToast('This Student ID is already registered to another account.', 'error');
+        return;
+      }
+    }
+
+    const emailExists = users.some(u => u.email && u.email.toLowerCase() === email.toLowerCase());
+    if (emailExists) {
+      showToast('This email is already in use. Please use a different email or login.', 'error');
+      return;
     }
 
     const newUser = {
@@ -54,7 +61,8 @@ export default function SignUpPortal({ onSwitchMode }) {
       password,
       role: tab === 'student' ? 'participant' : tab,
       ...(tab === 'student' && { studentId, track }),
-      ...(tab !== 'student' && { title: title || (tab === 'admin' ? 'Administrator' : 'Security Officer') })
+      ...(tab !== 'student' && { title: title || (tab === 'admin' ? 'Administrator' : 'Security Officer') }),
+      isActivated: tab === 'security' ? false : true
     };
 
     registerUser(newUser);
@@ -180,48 +188,26 @@ export default function SignUpPortal({ onSwitchMode }) {
 
           <div className="form-group">
             <label><Key size={14} style={{ display: 'inline', marginRight: 4 }} /> Password</label>
-            <div className="password-wrapper">
-              <input
-                type={showPassword ? 'text' : 'password'}
-                className="form-control"
-                placeholder="••••••••"
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                required
-              />
-              <button
-                type="button"
-                className="password-toggle"
-                onClick={() => setShowPassword(v => !v)}
-                tabIndex={-1}
-                aria-label={showPassword ? 'Hide password' : 'Show password'}
-              >
-                {showPassword ? <EyeOff size={16} /> : <Eye size={16} />}
-              </button>
-            </div>
+            <input
+              type="password"
+              className="form-control"
+              placeholder="••••••••"
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+              required
+            />
           </div>
 
           <div className="form-group">
             <label><Key size={14} style={{ display: 'inline', marginRight: 4 }} /> Confirm Password</label>
-            <div className="password-wrapper">
-              <input
-                type={showConfirmPassword ? 'text' : 'password'}
-                className="form-control"
-                placeholder="••••••••"
-                value={confirmPassword}
-                onChange={(e) => setConfirmPassword(e.target.value)}
-                required
-              />
-              <button
-                type="button"
-                className="password-toggle"
-                onClick={() => setShowConfirmPassword(v => !v)}
-                tabIndex={-1}
-                aria-label={showConfirmPassword ? 'Hide password' : 'Show password'}
-              >
-                {showConfirmPassword ? <EyeOff size={16} /> : <Eye size={16} />}
-              </button>
-            </div>
+            <input
+              type="password"
+              className="form-control"
+              placeholder="••••••••"
+              value={confirmPassword}
+              onChange={(e) => setConfirmPassword(e.target.value)}
+              required
+            />
           </div>
 
           <button type="submit" className="btn btn-primary" style={{ width: '100%', marginTop: '0.5rem' }}>

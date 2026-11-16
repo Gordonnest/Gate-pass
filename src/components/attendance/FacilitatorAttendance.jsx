@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { useExeat } from '../../context/ExeatContext';
 import { Clock, Play, Square, CheckCircle, XCircle, MinusCircle, User, SlidersHorizontal, PlayCircle, ChevronRight, GraduationCap, Calendar, X } from 'lucide-react';
 import './Attendance.css';
@@ -6,31 +6,38 @@ import './Attendance.css';
 export default function FacilitatorAttendance() {
   const {
     users,
+    currentUser,
     attendanceSession,
     sessionPINs,
     attendanceRecords,
     studentPerformances,
     openAttendanceSession,
-    closeAttendanceSession
+    closeAttendanceSession,
+    refreshAttendanceData
   } = useExeat();
 
   const [timeLeft, setTimeLeft] = useState('00:00');
   const [selectedStudent, setSelectedStudent] = useState(null);
+  const lastClosedSessionId = useRef(null); // Strictly prevents multiple closures of the same session
 
-  const participants = users.filter(u => u.role === 'participant');
+  // Fallback polling mechanism: in case Supabase Realtime is disabled or delayed
+  useEffect(() => {
+    if (attendanceSession?.status !== 'OPEN' || !refreshAttendanceData) return;
+    
+    const pollInterval = setInterval(() => {
+      refreshAttendanceData();
+    }, 5000);
+    
+    return () => clearInterval(pollInterval);
+  }, [attendanceSession?.status, refreshAttendanceData]);
+
+  const participants = users.filter(u => u.role === 'participant' && u.assignedTutorId === currentUser?.id);
   const enrolledCount = participants.length;
   const presentCount = (() => {
-    if (!attendanceSession?.openedAt) return 0;
-    const openedAtStr = attendanceSession.openedAt.endsWith('Z') || attendanceSession.openedAt.includes('+')
-      ? attendanceSession.openedAt
-      : attendanceSession.openedAt + 'Z';
-    const sessionStart = new Date(openedAtStr);
-    
+    const todayStr = new Date().toISOString().split('T')[0];
     return attendanceRecords.filter(r => {
-      const recordTimeStr = r.markedAt.endsWith('Z') || r.markedAt.includes('+')
-        ? r.markedAt
-        : r.markedAt + 'Z';
-      return r.status === 'PRESENT' && new Date(recordTimeStr) >= sessionStart;
+      const isToday = r.markedAt.split('T')[0] === todayStr;
+      return isToday && r.status === 'PRESENT' && participants.some(p => p.studentId === r.studentId);
     }).length;
   })();
 
@@ -43,15 +50,18 @@ export default function FacilitatorAttendance() {
     const interval = setInterval(() => {
       const now = new Date();
       // Ensure expiresAt is treated as UTC if it doesn't already have a timezone indicator
-      const expiresAtStr = attendanceSession.expiresAt.endsWith('Z') || attendanceSession.expiresAt.includes('+') 
-        ? attendanceSession.expiresAt 
-        : attendanceSession.expiresAt + 'Z';
+      const expiresAtStr = attendanceSession.expiresAt.replace(' ', 'T').endsWith('Z') || attendanceSession.expiresAt.replace(' ', 'T').includes('+') 
+        ? attendanceSession.expiresAt.replace(' ', 'T') 
+        : attendanceSession.expiresAt.replace(' ', 'T') + 'Z';
       const expires = new Date(expiresAtStr);
       const diff = expires - now;
 
       if (diff <= 0) {
-        setTimeLeft('00:00');
-        closeAttendanceSession();
+        clearInterval(interval);
+        if (lastClosedSessionId.current !== attendanceSession.id) {
+          lastClosedSessionId.current = attendanceSession.id;
+          closeAttendanceSession();
+        }
       } else {
         const m = Math.floor(diff / 60000);
         const s = Math.floor((diff % 60000) / 1000);
@@ -63,27 +73,16 @@ export default function FacilitatorAttendance() {
   }, [attendanceSession, closeAttendanceSession]);
 
   const getStudentStatus = (studentId) => {
-    let relevantRecords = attendanceRecords;
+    const todayStr = new Date().toISOString().split('T')[0];
     
-    // Only consider records created during or after the current session
-    if (attendanceSession?.openedAt) {
-      const openedAtStr = attendanceSession.openedAt.endsWith('Z') || attendanceSession.openedAt.includes('+')
-        ? attendanceSession.openedAt
-        : attendanceSession.openedAt + 'Z';
-      const sessionStart = new Date(openedAtStr);
-      
-      relevantRecords = attendanceRecords.filter(r => {
-        const recordTimeStr = r.markedAt.endsWith('Z') || r.markedAt.includes('+')
-          ? r.markedAt
-          : r.markedAt + 'Z';
-        return new Date(recordTimeStr) >= sessionStart;
-      });
-    }
+    const relevantRecords = attendanceRecords.filter(r => r.markedAt.split('T')[0] === todayStr);
 
-    const record = relevantRecords.find(r => r.studentId === studentId);
-    if (record) {
-      return record;
-    }
+    const presentRecord = relevantRecords.find(r => r.studentId === studentId && r.status === 'PRESENT');
+    if (presentRecord) return presentRecord;
+
+    const absentRecord = relevantRecords.find(r => r.studentId === studentId && r.status === 'ABSENT');
+    if (absentRecord) return absentRecord;
+
     return { status: 'PENDING' };
   };
 
@@ -96,8 +95,8 @@ export default function FacilitatorAttendance() {
     <div className="attendance-layout">
       <div className="attendance-sidebar">
         <div className="sidebar-header">
-          <h2>CS-101 Attendance</h2>
-          <p>Intro to Computer Science</p>
+          <h2>{participants.length > 0 && participants[0].assignedClass ? participants[0].assignedClass : 'Class Attendance'}</h2>
+          <p>Facilitator Dashboard</p>
         </div>
 
         <div className="session-title">
@@ -164,11 +163,12 @@ export default function FacilitatorAttendance() {
               <tbody>
                 {participants.map(student => {
                   const stat = getStudentStatus(student.studentId);
-                  const pin = getStudentPIN(student.studentId);
                   const isLive = attendanceSession?.status === 'OPEN';
 
                   let rowClass = '';
                   let statusIcon = <div className="status-icon-pending"><MinusCircle size={14} color="#94a3b8" /></div>;
+                  const pinObj = sessionPINs.find(p => p.studentId === student.studentId && !p.used);
+                  const pin = pinObj ? pinObj.pin : '---';
                   let displayPin = pin;
                   let displayTime = '--:--';
 
@@ -177,12 +177,12 @@ export default function FacilitatorAttendance() {
                     statusIcon = <CheckCircle size={18} color="#10b981" />;
                     displayPin = 'USED';
                     displayTime = new Date(stat.markedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-                  } else if (stat.status === 'ABSENT') {
+                  } else if (stat.status === 'ABSENT' && (!isLive || !pinObj)) {
                     rowClass = 'row-absent';
                     statusIcon = <XCircle size={18} color="#ef4444" />;
                     displayPin = 'EXPIRED';
                   } else {
-                    displayPin = isLive ? <span className="pin-badge">{pin}</span> : '---';
+                    displayPin = isLive && pinObj ? <span className="pin-badge">{pin}</span> : '---';
                   }
 
                   return (
